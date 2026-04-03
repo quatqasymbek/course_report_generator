@@ -1,43 +1,46 @@
 import streamlit as st
-import pandas as pd
 
-st.set_page_config(page_title="Course Report Generator", layout="wide")
+from src.pipeline import run_pipeline
 
-def check_pin() -> bool:
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
+st.set_page_config(page_title="Генератор отчетов", layout="wide")
 
-    if st.session_state.authenticated:
-        return True
+st.title("📊 Генератор отчетов по курсам ПК")
+st.caption("Версия: v0.3")
 
-    st.title("🔒 Course Report Generator")
-    st.caption("Build: v0.1.0")
+st.divider()
 
-    pin = st.text_input("Enter PIN", type="password")
+tests_file = st.file_uploader("📥 Загрузите Excel с тестированием", type=["xlsx"], key="tests")
+surveys_file = st.file_uploader("📥 Загрузите Excel с анкетированием", type=["xlsx"], key="surveys")
 
-    if st.button("Login"):
-        if pin == st.secrets["APP_PIN"]:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("Wrong PIN")
+if st.button("Запустить обработку", use_container_width=True):
+    if tests_file is None and surveys_file is None:
+        st.warning("Загрузите хотя бы один файл.")
+    else:
+        with st.spinner("Выполняется обработка данных..."):
+            result = run_pipeline(tests_file, surveys_file)
 
-    return False
+        st.success("Обработка завершена.")
 
-if not check_pin():
-    st.stop()
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(
+            ["Итог по курсам", "Итог по регионам", "Анкеты", "Сырые тесты", "Сырые анкеты"]
+        )
 
-st.title("Course Report Generator")
+        with tab1:
+            st.subheader("Итоговые показатели по курсам")
+            st.dataframe(result.course_summary, use_container_width=True)
 
-tests_file = st.file_uploader("Upload tests Excel", type=["xlsx", "xls"], key="tests")
-survey_file = st.file_uploader("Upload surveys Excel", type=["xlsx", "xls"], key="surveys")
+        with tab2:
+            st.subheader("Итоги по регионам")
+            st.dataframe(result.region_summary, use_container_width=True)
 
-if tests_file is not None:
-    tests_df = pd.read_excel(tests_file, engine="openpyxl")
-    st.subheader("Tests preview")
-    st.dataframe(tests_df.head(20), use_container_width=True)
+        with tab3:
+            st.subheader("Сводка по анкетам")
+            st.dataframe(result.survey_summary, use_container_width=True)
 
-if survey_file is not None:
-    survey_df = pd.read_excel(survey_file, engine="openpyxl")
-    st.subheader("Surveys preview")
-    st.dataframe(survey_df.head(20), use_container_width=True)
+        with tab4:
+            st.subheader("Сырые данные тестов")
+            st.dataframe(result.tests_raw.head(100), use_container_width=True)
+
+        with tab5:
+            st.subheader("Сырые данные анкет")
+            st.dataframe(result.surveys_raw.head(100), use_container_width=True)
