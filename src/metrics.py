@@ -1,79 +1,38 @@
+from dataclasses import dataclass
 import pandas as pd
 
+from src.readers import read_tests_excel, read_surveys_excel
+from src.metrics import (
+    prepare_tests_metrics,
+    prepare_region_metrics,
+    prepare_survey_metrics,
+    combine_course_summary,
+)
 
-SURVEY_SCORE_MAP = {
-    "отлично": 5,
-    "высокий": 5,
-    "хорошо": 4,
-    "удовлетворительно": 3,
-    "плохо": 2,
-}
+
+@dataclass
+class PipelineResult:
+    tests_raw: pd.DataFrame
+    surveys_raw: pd.DataFrame
+    course_summary: pd.DataFrame
+    region_summary: pd.DataFrame
+    survey_summary: pd.DataFrame
 
 
-def prepare_tests_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    result = df.copy()
+def run_pipeline(tests_file, surveys_file) -> PipelineResult:
+    tests_df = read_tests_excel(tests_file) if tests_file is not None else pd.DataFrame()
+    surveys_df = read_surveys_excel(surveys_file) if surveys_file is not None else pd.DataFrame()
 
-    for col in ["pre_test_score", "post_test_score", "knowledge_gain", "final_course_score", "project_score", "attendance"]:
-        if col in result.columns:
-            result[col] = pd.to_numeric(result[col], errors="coerce")
+    tests_summary = prepare_tests_metrics(tests_df) if not tests_df.empty else pd.DataFrame()
+    region_summary = prepare_region_metrics(tests_df) if not tests_df.empty else pd.DataFrame()
+    survey_summary = prepare_survey_metrics(surveys_df) if not surveys_df.empty else pd.DataFrame()
 
-    summary = (
-        result.groupby("course_name", dropna=False)
-        .agg(
-            participants=("iin", "nunique"),
-            avg_pre_test=("pre_test_score", "mean"),
-            avg_post_test=("post_test_score", "mean"),
-            avg_knowledge_gain=("knowledge_gain", "mean"),
-            avg_final_course_score=("final_course_score", "mean"),
-            avg_project_score=("project_score", "mean"),
-            avg_attendance=("attendance", "mean"),
-        )
-        .reset_index()
+    course_summary = combine_course_summary(tests_summary, survey_summary) if not tests_summary.empty else pd.DataFrame()
+
+    return PipelineResult(
+        tests_raw=tests_df,
+        surveys_raw=surveys_df,
+        course_summary=course_summary,
+        region_summary=region_summary,
+        survey_summary=survey_summary,
     )
-    return summary
-
-
-def prepare_region_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    result = df.copy()
-
-    for col in ["pre_test_score", "post_test_score", "knowledge_gain"]:
-        if col in result.columns:
-            result[col] = pd.to_numeric(result[col], errors="coerce")
-
-    summary = (
-        result.groupby(["course_name", "region"], dropna=False)
-        .agg(
-            participants=("iin", "nunique"),
-            avg_pre_test=("pre_test_score", "mean"),
-            avg_post_test=("post_test_score", "mean"),
-            avg_knowledge_gain=("knowledge_gain", "mean"),
-        )
-        .reset_index()
-    )
-    return summary
-
-
-def prepare_survey_metrics(df: pd.DataFrame) -> pd.DataFrame:
-    result = df.copy()
-
-    for col in ["content_score", "material_score"]:
-        if col in result.columns:
-            result[col] = pd.to_numeric(result[col], errors="coerce")
-
-    summary = (
-        result.groupby("course_name", dropna=False)
-        .agg(
-            survey_responses=("iin", "nunique"),
-            avg_content_score=("content_score", "mean"),
-            avg_material_score=("material_score", "mean"),
-        )
-        .reset_index()
-    )
-    return summary
-
-
-def combine_course_summary(
-    tests_summary: pd.DataFrame,
-    survey_summary: pd.DataFrame,
-) -> pd.DataFrame:
-    return tests_summary.merge(survey_summary, on="course_name", how="left")
