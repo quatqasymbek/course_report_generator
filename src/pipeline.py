@@ -9,7 +9,6 @@ from src.metrics import (
     combine_course_summary,
 )
 
-
 @dataclass
 class PipelineResult:
     tests_raw: pd.DataFrame
