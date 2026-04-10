@@ -18,7 +18,7 @@ REQUIRED_COLUMNS = [
 
 
 def read_course_mapping(path: Path) -> pd.DataFrame:
-    df = read_excel_path(path)
+    df = read_excel_path(path).copy()
 
     for col in REQUIRED_COLUMNS:
         if col not in df.columns:
@@ -29,12 +29,14 @@ def read_course_mapping(path: Path) -> pd.DataFrame:
     if "comment" not in df.columns:
         df["comment"] = pd.NA
 
-    df = df.copy()
     for col in REQUIRED_COLUMNS:
         df[col] = df[col].map(normalize_text)
 
-    df["is_active"] = df["is_active"].fillna(1)
-    df = df[df["is_active"].astype(int) == 1].copy()
+    df["course_id"] = df["course_id"].map(normalize_text)
+    df["is_active"] = pd.to_numeric(df["is_active"], errors="coerce").fillna(1).astype(int)
+
+    df = df[df["is_active"] == 1].copy()
+    df = df[df["course_id"] != ""].copy()
 
     df["course_name_canonical"] = df["course_name_canonical"].where(
         df["course_name_canonical"].astype(str).str.strip() != "",
@@ -62,7 +64,8 @@ def build_dim_course(course_mapping_df: pd.DataFrame) -> pd.DataFrame:
         "is_active",
         "comment",
     ]
-    return course_mapping_df[cols].drop_duplicates(subset=["course_id"]).copy()
+    existing_cols = [c for c in cols if c in course_mapping_df.columns]
+    return course_mapping_df[existing_cols].drop_duplicates(subset=["course_id"]).copy()
 
 
 def build_course_alias_map_from_wide(course_mapping_df: pd.DataFrame) -> pd.DataFrame:
@@ -77,6 +80,7 @@ def build_course_alias_map_from_wide(course_mapping_df: pd.DataFrame) -> pd.Data
 
     for _, row in course_mapping_df.iterrows():
         course_id = row["course_id"]
+
         for col_name, alias_source in alias_columns:
             raw_name = normalize_text(row.get(col_name, ""))
             if not raw_name:
@@ -92,9 +96,19 @@ def build_course_alias_map_from_wide(course_mapping_df: pd.DataFrame) -> pd.Data
                 }
             )
 
-    alias_df = pd.DataFrame(alias_rows).drop_duplicates(
-        subset=["normalized_course_name", "course_id"]
-    )
+    alias_df = pd.DataFrame(alias_rows)
+    if alias_df.empty:
+        return pd.DataFrame(
+            columns=[
+                "raw_course_name",
+                "normalized_course_name",
+                "course_id",
+                "alias_source",
+                "is_active",
+            ]
+        )
+
+    alias_df = alias_df.drop_duplicates(subset=["normalized_course_name", "course_id"])
     return alias_df
 
 
@@ -102,7 +116,7 @@ def validate_course_mapping(course_mapping_df: pd.DataFrame) -> pd.DataFrame:
     issues: list[dict[str, object]] = []
 
     missing_course_id = course_mapping_df["course_id"].astype(str).str.strip().eq("").sum()
-    if missing_course_id:
+    if int(missing_course_id) > 0:
         issues.append(
             {
                 "issue_type": "missing_course_id",
@@ -137,15 +151,18 @@ def validate_course_mapping(course_mapping_df: pd.DataFrame) -> pd.DataFrame:
         )
 
     alias_df = build_course_alias_map_from_wide(course_mapping_df)
-    alias_dup = alias_df.groupby("normalized_course_name")["course_id"].nunique().reset_index()
-    alias_conflicts = alias_dup[alias_dup["course_id"] > 1]
-    if not alias_conflicts.empty:
-        issues.append(
-            {
-                "issue_type": "alias_conflict",
-                "row_count": int(len(alias_conflicts)),
-                "details": "Одно и то же normalized_course_name маппится на несколько course_id",
-            }
-        )
+    if not alias_df.empty:
+        alias_dup = alias_df.groupby("normalized_course_name")["course_id"].nunique().reset_index()
+        alias_conflicts = alias_dup[alias_dup["course_id"] > 1]
+
+        if not alias_conflicts.empty:
+            conflict_names = alias_conflicts["normalized_course_name"].head(10).tolist()
+            issues.append(
+                {
+                    "issue_type": "alias_conflict",
+                    "row_count": int(len(alias_conflicts)),
+                    "details": f"Одно и то же normalized_course_name маппится на несколько course_id. Примеры: {conflict_names}",
+                }
+            )
 
     return pd.DataFrame(issues)
