@@ -1,27 +1,15 @@
-import re
+from __future__ import annotations
+
 import pandas as pd
 
-
-def normalize_column_name(col: str) -> str:
-    col = str(col).strip().lower()
-    col = col.replace("\n", " ")
-    col = col.replace("/", "_")
-    col = col.replace("\\", "_")
-    col = col.replace("-", "_")
-    col = col.replace("(", "")
-    col = col.replace(")", "")
-    col = col.replace("?", "")
-    col = col.replace("%", "pct")
-    col = re.sub(r"\s+", "_", col)
-    col = re.sub(r"_+", "_", col)
-    return col.strip("_")
+from src.utils import normalize_column_name
 
 
 TESTS_COLUMN_MAP = {
     "иин": "iin",
     "название_курса": "course_name",
-    "область_город": "region",
-    "район_город": "district",
+    "область_город": "region_raw",
+    "район_город": "district_raw",
     "дата_начала_обучения": "start_date",
     "дата_завершения_обучения": "end_date",
     "диагностическое_тестирование": "pre_test_score",
@@ -33,8 +21,11 @@ TESTS_COLUMN_MAP = {
     "уникальный_код_группы": "group_code",
     "номер_группы": "group_number",
     "язык_обучения": "study_language",
+    "фамилия": "last_name",
+    "имя": "first_name",
+    "отчество": "middle_name",
+    "филиал": "branch",
 }
-
 
 SURVEY_COLUMN_MAP = {
     "дата_сдачи": "submit_date",
@@ -45,9 +36,9 @@ SURVEY_COLUMN_MAP = {
     "дата_завершения_обучения": "end_date",
     "категория_курса": "course_category",
     "код_группы": "group_code",
-    "1.1_насколько_вы_удовлетворены_содержанием_курса": "content_score",
-    "1.2_насколько_вы_удовлетворены_качеством_учебных_материалов_ресурсов": "material_score",
-    "4._какие_у_вас_есть_предложения_по_улучшению_данного_курса": "improvement_comment",
+    "1_1_насколько_вы_удовлетворены_содержанием_курса": "content_score",
+    "1_2_насколько_вы_удовлетворены_качеством_учебных_материалов_ресурсов": "material_score",
+    "4_какие_у_вас_есть_предложения_по_улучшению_данного_курса": "improvement_comment",
 }
 
 
