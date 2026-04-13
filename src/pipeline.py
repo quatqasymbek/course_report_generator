@@ -27,6 +27,7 @@ class PipelineResult:
     mapping_issues: pd.DataFrame
     dim_course: pd.DataFrame
     alias_map: pd.DataFrame
+    available_courses: pd.DataFrame
 
 
 def _enrich_surveys_with_region(surveys_df: pd.DataFrame, tests_df: pd.DataFrame) -> pd.DataFrame:
@@ -47,6 +48,43 @@ def _enrich_surveys_with_region(surveys_df: pd.DataFrame, tests_df: pd.DataFrame
     enriched = surveys_df.merge(region_lookup, on=["iin", "course_id"], how="left")
     enriched["region_canonical"] = enriched["region_canonical"].fillna("")
     return enriched
+
+
+def _build_available_courses(dim_course: pd.DataFrame, tests_matched: pd.DataFrame, surveys_matched: pd.DataFrame) -> pd.DataFrame:
+    if dim_course is None or dim_course.empty:
+        return pd.DataFrame(columns=["course_id", "course_name_canonical", "course_label"])
+
+    test_ids = set(
+        tests_matched["course_id"].dropna().astype(str).str.strip().tolist()
+    ) if not tests_matched.empty and "course_id" in tests_matched.columns else set()
+
+    survey_ids = set(
+        surveys_matched["course_id"].dropna().astype(str).str.strip().tolist()
+    ) if not surveys_matched.empty and "course_id" in surveys_matched.columns else set()
+
+    matched_ids = test_ids | survey_ids
+    if not matched_ids:
+        return pd.DataFrame(columns=["course_id", "course_name_canonical", "course_label"])
+
+    courses = dim_course.copy()
+    courses["course_id"] = courses["course_id"].fillna("").astype(str).str.strip()
+    courses = courses[courses["course_id"].isin(matched_ids)].copy()
+
+    if "course_name_canonical" not in courses.columns:
+        courses["course_name_canonical"] = ""
+
+    courses["course_label"] = (
+        courses["course_name_canonical"].fillna("").astype(str).str.strip()
+        + " | "
+        + courses["course_id"]
+    )
+
+    return (
+        courses[["course_id", "course_name_canonical", "course_label"]]
+        .drop_duplicates(subset=["course_id"])
+        .sort_values(["course_name_canonical", "course_id"])
+        .reset_index(drop=True)
+    )
 
 
 def run_pipeline(tests_file=None, surveys_file=None) -> PipelineResult:
@@ -87,6 +125,7 @@ def run_pipeline(tests_file=None, surveys_file=None) -> PipelineResult:
     course_summary = build_course_summary(tests_matched, surveys_matched)
     region_summary = build_region_summary(tests_matched)
     survey_summary = build_survey_summary(surveys_matched)
+    available_courses = _build_available_courses(dim_course, tests_matched, surveys_matched)
 
     return PipelineResult(
         tests_raw=tests_raw,
@@ -101,4 +140,5 @@ def run_pipeline(tests_file=None, surveys_file=None) -> PipelineResult:
         mapping_issues=mapping_issues,
         dim_course=dim_course,
         alias_map=alias_map,
+        available_courses=available_courses,
     )
