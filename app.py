@@ -26,14 +26,26 @@ def _json_ready(value):
         return [_json_ready(v) for v in value]
     if isinstance(value, tuple):
         return [_json_ready(v) for v in value]
-    if pd.isna(value):
+
+    if value is None:
         return None
+
+    if isinstance(value, (str, int, float, bool)):
+        return value
+
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+
     if hasattr(value, "isoformat"):
         try:
             return value.isoformat()
         except Exception:
             return str(value)
-    return value
+
+    return str(value)
 
 
 def _placeholder_table(context: dict) -> pd.DataFrame:
