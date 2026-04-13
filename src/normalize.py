@@ -181,7 +181,7 @@ def normalize_tests_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in ["start_date", "end_date"]:
         if col in result.columns:
-            result[col] = pd.to_datetime(result[col], errors="coerce")
+            result[col] = pd.to_datetime(result[col], errors="coerce", dayfirst=True)
 
     return result
 
@@ -217,6 +217,6 @@ def normalize_surveys_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in ["submit_date", "start_date", "end_date"]:
         if col in result.columns:
-            result[col] = pd.to_datetime(result[col], errors="coerce")
+            result[col] = pd.to_datetime(result[col], errors="coerce", dayfirst=True)
 
     return result
