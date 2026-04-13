@@ -6,7 +6,7 @@ from src.config import REGION_ORDER
 from src.utils import pct, safe_int, safe_round
 
 
-def _empty_global_metrics() -> dict:
+def _empty_global_text_placeholders() -> dict:
     return {
         "all_courses_students_count_total": 0,
         "all_courses_count_total": 0,
@@ -19,50 +19,70 @@ def _empty_global_metrics() -> dict:
     }
 
 
-def calculate_global_test_metrics(tests_df: pd.DataFrame) -> dict:
-    if tests_df.empty:
-        return _empty_global_metrics()
+def _unique_non_empty(series: pd.Series) -> set[str]:
+    if series is None or series.empty:
+        return set()
+    cleaned = series.dropna().astype(str).str.strip()
+    cleaned = cleaned[cleaned != ""]
+    return set(cleaned.tolist())
 
-    result = _empty_global_metrics()
-    result["all_courses_students_count_total"] = safe_int(tests_df["iin"].nunique())
-    result["all_courses_count_total"] = safe_int(tests_df["course_id"].nunique())
-    result["all_courses_kz_gain_mean"] = safe_round(tests_df["knowledge_gain"].mean())
 
-    course_gain = (
-        tests_df.groupby(["course_id", "course_name_canonical"], dropna=False)["knowledge_gain"]
-        .mean()
-        .reset_index()
-    )
+def calculate_global_text_placeholders(
+    tests_df: pd.DataFrame,
+    surveys_df: pd.DataFrame,
+) -> dict:
+    result = _empty_global_text_placeholders()
 
-    if not course_gain.empty and course_gain["knowledge_gain"].notna().any():
-        course_gain_non_null = course_gain.dropna(subset=["knowledge_gain"]).copy()
+    test_iins = _unique_non_empty(tests_df["iin"]) if "iin" in tests_df.columns else set()
+    survey_iins = _unique_non_empty(surveys_df["iin"]) if "iin" in surveys_df.columns else set()
+    result["all_courses_students_count_total"] = safe_int(len(test_iins | survey_iins))
 
-        if not course_gain_non_null.empty:
-            max_row = course_gain_non_null.loc[course_gain_non_null["knowledge_gain"].idxmax()]
-            min_row = course_gain_non_null.loc[course_gain_non_null["knowledge_gain"].idxmin()]
+    test_courses = _unique_non_empty(tests_df["course_id"]) if "course_id" in tests_df.columns else set()
+    survey_courses = _unique_non_empty(surveys_df["course_id"]) if "course_id" in surveys_df.columns else set()
+    result["all_courses_count_total"] = safe_int(len(test_courses | survey_courses))
 
-            result["all_courses_largest_gain_score"] = safe_round(max_row["knowledge_gain"])
-            result["all_courses_largest_gain_course"] = str(max_row["course_name_canonical"] or "")
+    if not tests_df.empty and "knowledge_gain" in tests_df.columns:
+        result["all_courses_kz_gain_mean"] = safe_round(tests_df["knowledge_gain"].mean())
 
-            result["all_courses_smallest_gain_score"] = safe_round(min_row["knowledge_gain"])
-            result["all_courses_smallest_gain_course"] = str(min_row["course_name_canonical"] or "")
+        course_gain = (
+            tests_df.groupby(["course_id", "course_name_canonical"], dropna=False)["knowledge_gain"]
+            .mean()
+            .reset_index()
+        )
+
+        if not course_gain.empty:
+            course_gain = course_gain.dropna(subset=["knowledge_gain"]).copy()
+
+            if not course_gain.empty:
+                max_row = course_gain.loc[course_gain["knowledge_gain"].idxmax()]
+                min_row = course_gain.loc[course_gain["knowledge_gain"].idxmin()]
+
+                result["all_courses_largest_gain_score"] = safe_round(max_row["knowledge_gain"])
+                result["all_courses_largest_gain_course"] = str(max_row["course_name_canonical"] or "")
+
+                result["all_courses_smallest_gain_score"] = safe_round(min_row["knowledge_gain"])
+                result["all_courses_smallest_gain_course"] = str(min_row["course_name_canonical"] or "")
+
+    if not surveys_df.empty:
+        score_cols = [c for c in ["content_score", "material_score"] if c in surveys_df.columns]
+        if score_cols:
+            stacked = pd.concat([surveys_df[c] for c in score_cols], ignore_index=True).dropna()
+            if not stacked.empty:
+                result["all_courses_avg_satisfaction_score_10"] = safe_round(stacked.mean())
 
     return result
 
 
-def calculate_global_survey_metrics(surveys_df: pd.DataFrame) -> dict:
-    if surveys_df.empty:
-        return {"all_courses_avg_satisfaction_score_10": 0.0}
+def calculate_course_name_placeholder(dim_course: pd.DataFrame, course_id: str) -> dict:
+    if dim_course is None or dim_course.empty or "course_id" not in dim_course.columns:
+        return {"course_name": ""}
 
-    score_cols = [c for c in ["content_score", "material_score"] if c in surveys_df.columns]
-    if not score_cols:
-        return {"all_courses_avg_satisfaction_score_10": 0.0}
+    row = dim_course[dim_course["course_id"].astype(str) == str(course_id)].copy()
+    if row.empty:
+        return {"course_name": ""}
 
-    stacked = pd.concat([surveys_df[c] for c in score_cols], ignore_index=True).dropna()
-    if stacked.empty:
-        return {"all_courses_avg_satisfaction_score_10": 0.0}
-
-    return {"all_courses_avg_satisfaction_score_10": safe_round(stacked.mean())}
+    course_name = str(row["course_name_canonical"].fillna("").astype(str).iloc[0]).strip()
+    return {"course_name": course_name}
 
 
 def build_course_summary(tests_df: pd.DataFrame, surveys_df: pd.DataFrame) -> pd.DataFrame:
@@ -226,17 +246,13 @@ def calculate_course_test_metrics(tests_df: pd.DataFrame, course_id: str) -> dic
     df_course = tests_df[tests_df["course_id"].astype(str) == str(course_id)].copy()
     if df_course.empty:
         return {
-            "course_name": "",
             "course_students_count_kz": 0,
             "course_kz_diag_mean": 0.0,
             "course_kz_final_mean": 0.0,
             "course_kz_gain_mean": 0.0,
         }
 
-    course_name = str(df_course["course_name_canonical"].dropna().iloc[0])
-
     return {
-        "course_name": course_name,
         "course_students_count_kz": safe_int(df_course["iin"].nunique()),
         "course_kz_diag_mean": safe_round(df_course["pre_test_score"].mean()),
         "course_kz_final_mean": safe_round(df_course["post_test_score"].mean()),
